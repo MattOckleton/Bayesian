@@ -135,6 +135,13 @@ def fit_emulator(
     min = np.array(analysis_settings.raw_analysis_config["parameterization"][analysis_settings.parameterization]["min"])
     max = np.array(analysis_settings.raw_analysis_config["parameterization"][analysis_settings.parameterization]["max"])
 
+    # Transform to working space: log-scale c-parameters so the emulator
+    # trains in the space where they are nearly uniformly distributed.
+    param_cfg = analysis_settings.raw_analysis_config["parameterization"][analysis_settings.parameterization]
+    design = data_IO.to_working_space(design, param_cfg)
+    min    = data_IO.to_working_space(min,    param_cfg)
+    max    = data_IO.to_working_space(max,    param_cfg)
+
     kernel = None
     for kernel_type, kernel_args in emulator_settings.active_kernels.items():
         if kernel_type == "matern":

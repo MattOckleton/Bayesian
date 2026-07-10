@@ -239,6 +239,34 @@ def _generate_pseudodata(
 
 
 ####################################################################################################################
+# LOG-SCALE PARAMETER TRANSFORM HELPERS
+####################################################################################################################
+
+
+def log_scale_indices(param_cfg: dict) -> list:
+    """Indices of parameters sampled/emulated in log space (c1, c2, c3)."""
+    return [i for i, name in enumerate(param_cfg["names"]) if "c_" in name]
+
+
+def to_working_space(params, param_cfg):
+    """Physical -> working space: log the c-parameters. Accepts (..., n_params) arrays."""
+    p = np.array(params, dtype=float, copy=True)
+    idx = log_scale_indices(param_cfg)
+    if idx:
+        p[..., idx] = np.log(p[..., idx])
+    return p
+
+
+def to_physical_space(params, param_cfg):
+    """Working -> physical space: exp the c-parameters."""
+    p = np.array(params, dtype=float, copy=True)
+    idx = log_scale_indices(param_cfg)
+    if idx:
+        p[..., idx] = np.exp(p[..., idx])
+    return p
+
+
+####################################################################################################################
 # SYSTEMATIC UNCERTAINTY HELPER FUNCTIONS
 ####################################################################################################################
 
@@ -867,6 +895,8 @@ def _data_array_from_h5_with_correlations(observables, correlation_manager, pseu
 
     current_feature_index = 0
     systematic_uncertainty_list = []
+    # Per-observable pT bin-center positions, for the 'gauss' (paper Eq. 10) summed kernel.
+    observable_positions: dict[str, np.ndarray] = {}
 
     for observable_label in sorted_observable_list:
         y_values = _validate_and_flatten_array(data_dict[observable_label]["y"], observable_label)
@@ -878,6 +908,13 @@ def _data_array_from_h5_with_correlations(observables, correlation_manager, pseu
         start_idx = current_feature_index
         end_idx = current_feature_index + n_bins
         data["observable_ranges"].append((start_idx, end_idx, observable_label))
+
+        # Bin-center positions (used only by the gauss/rescaled-pT kernel). Derived from the
+        # data bin edges when available; observables without edges simply get no positions.
+        obs_xmin = data_dict[observable_label].get("xmin")
+        obs_xmax = data_dict[observable_label].get("xmax")
+        if obs_xmin is not None and obs_xmax is not None:
+            observable_positions[observable_label] = 0.5 * (np.asarray(obs_xmin) + np.asarray(obs_xmax))
 
         data["y"].extend(y_values)
         data["y_err_stat"].extend(y_err_stat_values)
@@ -940,6 +977,7 @@ def _data_array_from_h5_with_correlations(observables, correlation_manager, pseu
                     break
 
     correlation_manager.register_observable_ranges(data["observable_ranges"])
+    correlation_manager.register_observable_positions(observable_positions)
     correlation_manager.resolve_bin_counts(data["observable_ranges"])
 
     logger.info("Data loading complete:")
@@ -1057,6 +1095,7 @@ def initialize_observables_dict_from_tables(
     # We separate out the validation indices specified in the config
     validation_range = analysis_config["validation_indices"]
     validation_indices = range(validation_range[0], validation_range[1])
+    original_validation_indices = validation_indices
 
     # ----------------------
     # Read experimental data
@@ -1341,9 +1380,9 @@ def initialize_observables_dict_from_tables(
                     prediction_dir=prediction_dir,
                     filename_prediction_values=filename_prediction_values,
                 )
-                training_indices, _, validation_indices, _ = _split_training_validation_indices(
+                training_indices, _, _, _ = _split_training_validation_indices(
                     design_points=design_points,
-                    validation_indices=validation_indices,
+                    validation_indices=original_validation_indices,
                     design_points_to_exclude=design_points_to_exclude,
                 )
 

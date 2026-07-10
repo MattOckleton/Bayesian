@@ -167,6 +167,10 @@ class MCConfig:
         return self.analysis_settings.io.observables_table_dir
 
     @property
+    def n_walkers(self) -> int:
+        return self.sampler_settings.n_walkers
+
+    @property
     def confidence(self) -> float:
         return float(self.analysis_settings.raw_analysis_config.get("closure", {}).get("confidence", 0.9))
 
@@ -185,6 +189,10 @@ def run_mcmc(config: MCConfig) -> None:
     parameter_min = np.array(param_cfg["min"])
     parameter_max = np.array(param_cfg["max"])
     ndim = len(param_cfg["names"])
+
+    # Transform bounds to working space: MCMC walks in log space for c-parameters.
+    parameter_min = data_IO.to_working_space(parameter_min, param_cfg)
+    parameter_max = data_IO.to_working_space(parameter_max, param_cfg)
 
     # Load emulators from disk
     emulation_config = emulation.EmulationConfig.from_config_file(analysis_settings=config.analysis_settings)

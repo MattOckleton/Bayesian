@@ -27,30 +27,36 @@ KEY FEATURES:
 TWO SYSTEMATIC UNCERTAINTY APPROACHES:
 ======================================
 
-LEGACY MODE:
+LEGACY / SUMMED MODE:
 ---------------------------------------------
-Config format: 'sum:cor_length:cor_strength'
-Algorithm:
-  1. Sum all systematic sources in quadrature: σ_total = √(Σ σᵢ²)
-  2. Apply exponential decay correlation within observable:
-     ρ(i,j) = cor_strength × exp(-|i-j|/cor_length)
-  3. No cross-observable correlation possible
+Two kernels are available; both are block-diagonal (no cross-observable correlation)
+and sum all systematic sources in quadrature within each observable
+(σ_total = √(Σ σᵢ²)) before applying the correlation.
 
-Parameters:
-  cor_length: Correlation length in bins
-    -1 = fully correlated within observable
-    >0 = exponential decay over cor_length bins
-  cor_strength: Overall correlation strength [0, 1]
-    0 = uncorrelated, 1 = fully correlated
+(a) 'exp' kernel (default) - config 'sum:cor_length:cor_strength' or 'sum'
+    ρ(i,j) = cor_strength × exp(-|i-j|/cor_length)   (distance = BIN INDEX separation)
+    Parameters:
+      cor_length: Correlation length in bins (-1 = fully correlated within observable;
+                  >0 = exponential decay over cor_length bins)
+      cor_strength: Overall correlation strength [0, 1]
 
-Correlation structure:
+(b) 'gauss' kernel - config 'gauss:cor_length_pt:cor_strength' or 'gauss'
+    Squared-exponential in RESCALED pT, matching the q-hat paper (arXiv:2408.08247v2,
+    Eq. 10) and the old STAT `EstimateCovariance` ScaleX behaviour:
+      ρ(i,j) = cor_strength × exp(-((pᵢ - pⱼ)/cor_length_pt)²)
+    where each observable's pT bin centers are linearly rescaled to [0, 1], and
+    cor_length_pt is a correlation length in those rescaled-pT units (paper default 0.2,
+    the paper's ℓ). Requires
+    per-observable bin-center positions (register_observable_positions), which data_IO
+    supplies from the data bin edges; observables missing positions fall back to identity.
+
+Correlation structure (both kernels):
   Block-diagonal: Each observable independent
-  Intra-observable: Exponential decay based on bin separation
+  Intra-observable: decay based on bin separation (index for exp, rescaled pT for gauss)
 
 Use case:
-  - Compatibility with original STAT repository
-  - Global analyses where cross-observable correlations are negligible
-  - Exploratory studies
+  - 'exp': compatibility with original STAT repo; exploratory studies
+  - 'gauss': faithful reproduction of the q-hat paper's systematic correlation kernel
 
 ADVANCED MODE (recommended for precision measurements):
 -------------------------------------------------------
@@ -188,9 +194,24 @@ class SystematicInfo:
     cor_length: int = attrs.field(default=-1)  # -1 means all bins (only applies to sum)
     cor_strength: float = attrs.field(default=1.0)  # Only applies to sum
 
+    # Kernel selection for SUMMED systematics (ignored for individual systematics):
+    #   "exp"   -> plain exponential in BIN INDEX (legacy/STAT):
+    #              rho(i,j) = cor_strength * exp(-|i-j| / cor_length)
+    #   "gauss" -> squared exponential in RESCALED pT (paper arXiv:2408.08247v2, Eq. 10):
+    #              rho(i,j) = cor_strength * exp(-((p_i - p_j) / cor_length_pt)^2),
+    #              with each observable's pT linearly rescaled to [0, 1] when scale_x=True.
+    #              This mirrors the old STAT `EstimateCovariance` ScaleX behaviour.
+    kernel: str = attrs.field(default="exp")
+    scale_x: bool = attrs.field(default=False)  # rescale pT to [0,1] before distance (gauss/paper)
+    cor_length_pt: float = attrs.field(default=0.2)  # correlation length in rescaled-pT units (gauss only)
+
     def __attrs_post_init__(self):
         """Validate systematic info after initialization."""
         self.is_uncorrelated = self.correlation_tag.lower() == "uncor"
+
+        if self.kernel not in ("exp", "gauss"):
+            msg = f"Unknown systematic kernel '{self.kernel}' for {self.full_name}. Use 'exp' or 'gauss'."
+            raise ValueError(msg)
 
         # Summed systematics cannot be uncorrelated - that combination has no meaning.
         if self.is_summed and self.is_uncorrelated:
@@ -240,26 +261,47 @@ def parse_systematic_config(sys_config_string: str) -> dict:
     """
     parts = sys_config_string.split(":")
 
-    if parts[0] == "sum":
-        # Summed systematic: sum[:cor_length[:cor_strength]]
+    if parts[0] in ("sum", "gauss"):
+        # Summed systematics (block-diagonal, no cross-observable correlation). Two kernels:
+        #   'sum[:cor_length[:cor_strength]]'   -> plain exponential in bin index (legacy)
+        #   'gauss[:cor_length_pt[:cor_strength]]' -> squared exponential in rescaled pT (paper Eq. 10)
+        kernel = "gauss" if parts[0] == "gauss" else "exp"
+
         if len(parts) > 3:
             msg = (
-                f"Invalid sum format: '{sys_config_string}'. "
-                f"Sum systematics cannot have group tags. "
-                f"Use format: 'sum' or 'sum:cor_length:cor_strength'"
+                f"Invalid {parts[0]} format: '{sys_config_string}'. "
+                f"Summed systematics cannot have group tags. "
+                f"Use format: '{parts[0]}' or '{parts[0]}:{'cor_length_pt' if kernel == 'gauss' else 'cor_length'}:cor_strength'"
             )
             raise ValueError(msg)
 
-        try:
-            cor_length = int(parts[1]) if len(parts) > 1 else -1
-            cor_strength = float(parts[2]) if len(parts) > 2 else 1.0
-        except (ValueError, IndexError) as e:
-            msg = (
-                f"Invalid sum format: '{sys_config_string}'. "
-                f"Expected 'sum' or 'sum:cor_length:cor_strength' where cor_length is int and cor_strength is float. "
-                f"Error: {e}"
-            )
-            raise ValueError(msg) from e
+        if kernel == "gauss":
+            # gauss[:cor_length_pt[:cor_strength]] - cor_length_pt is a float in rescaled-pT units (paper default 0.2)
+            try:
+                cor_length_pt = float(parts[1]) if len(parts) > 1 else 0.2
+                cor_strength = float(parts[2]) if len(parts) > 2 else 1.0
+            except (ValueError, IndexError) as e:
+                msg = (
+                    f"Invalid gauss format: '{sys_config_string}'. "
+                    f"Expected 'gauss' or 'gauss:cor_length_pt:cor_strength' where cor_length_pt and cor_strength are floats. "
+                    f"Error: {e}"
+                )
+                raise ValueError(msg) from e
+            cor_length = -1  # not used for gauss (correlation length lives in cor_length_pt, rescaled-pT units)
+            scale_x = True
+        else:
+            try:
+                cor_length = int(parts[1]) if len(parts) > 1 else -1
+                cor_strength = float(parts[2]) if len(parts) > 2 else 1.0
+            except (ValueError, IndexError) as e:
+                msg = (
+                    f"Invalid sum format: '{sys_config_string}'. "
+                    f"Expected 'sum' or 'sum:cor_length:cor_strength' where cor_length is int and cor_strength is float. "
+                    f"Error: {e}"
+                )
+                raise ValueError(msg) from e
+            cor_length_pt = 0.2
+            scale_x = False
 
         config = {
             "type": "sum",
@@ -267,8 +309,14 @@ def parse_systematic_config(sys_config_string: str) -> dict:
             "group_tag": "",  # Empty - no cross-observable correlation
             "cor_length": cor_length,
             "cor_strength": cor_strength,
+            "kernel": kernel,
+            "scale_x": scale_x,
+            "cor_length_pt": cor_length_pt,
         }
-        logger.debug(f"Parsed sum: {sys_config_string} -> length={cor_length}, strength={cor_strength}")
+        logger.debug(
+            f"Parsed {parts[0]}: {sys_config_string} -> kernel={kernel}, "
+            f"length={cor_length}, cor_length_pt={cor_length_pt}, strength={cor_strength}"
+        )
 
     else:
         # Individual systematic: name:group_tag OR just name (auto-generates unique tag)
@@ -282,6 +330,9 @@ def parse_systematic_config(sys_config_string: str) -> dict:
                 "group_tag": parts[0],  # Use name as group tag (unique per systematic)
                 "cor_length": -1,  # Not used for individual
                 "cor_strength": 1.0,  # Not used for individual
+                "kernel": "exp",  # Not used for individual
+                "scale_x": False,
+                "cor_length_pt": 0.2,
             }
             logger.debug(f"Parsed individual (auto-tag): {sys_config_string} -> name='{parts[0]}', group='{parts[0]}'")
 
@@ -293,6 +344,9 @@ def parse_systematic_config(sys_config_string: str) -> dict:
                 "group_tag": parts[1],
                 "cor_length": -1,  # Not used for individual
                 "cor_strength": 1.0,  # Not used for individual
+                "kernel": "exp",  # Not used for individual
+                "scale_x": False,
+                "cor_length_pt": 0.2,
             }
             logger.debug(f"Parsed individual: {sys_config_string} -> name='{parts[0]}', group='{parts[1]}'")
 
@@ -309,7 +363,13 @@ def parse_systematic_config(sys_config_string: str) -> dict:
             logger.warning(f"Correlation strength {config['cor_strength']} outside [0,1], clipping to [0,1]")
             config["cor_strength"] = np.clip(config["cor_strength"], 0.0, 1.0)
 
-        if config["cor_length"] < -1 or config["cor_length"] == 0:
+        if config["kernel"] == "gauss":
+            if config["cor_length_pt"] <= 0.0:
+                logger.warning(
+                    f"Invalid gauss correlation length cor_length_pt={config['cor_length_pt']}, setting to 0.2"
+                )
+                config["cor_length_pt"] = 0.2
+        elif config["cor_length"] < -1 or config["cor_length"] == 0:
             logger.warning(f"Invalid correlation length {config['cor_length']}, setting to -1 (all bins)")
             config["cor_length"] = -1
 
@@ -340,6 +400,12 @@ class SystematicCorrelationManager:
 
     # Store observable ranges for covariance calculation
     _observable_ranges: list[tuple[int, int, str]] = attrs.field(factory=list)
+
+    # Per-observable bin-center positions (e.g. pT), keyed by the observable label used in
+    # _observable_ranges. Only needed for the 'gauss' (paper Eq. 10) summed kernel, which
+    # measures bin separation in rescaled pT rather than bin index. Registered at data-load
+    # time via register_observable_positions() (not serialized - see to_dict()).
+    _observable_positions: dict[str, np.ndarray] = attrs.field(factory=dict)
 
     _pending_correlation_params: dict[str, str] = attrs.field(factory=dict, init=False)
 
@@ -394,6 +460,9 @@ class SystematicCorrelationManager:
                 correlation_tag = config["group_tag"]
                 cor_length = config["cor_length"]
                 cor_strength = config["cor_strength"]
+                kernel = config["kernel"]
+                scale_x = config["scale_x"]
+                cor_length_pt = config["cor_length_pt"]
                 is_summed = config["type"] == "sum"
 
                 # Construct full name
@@ -425,6 +494,9 @@ class SystematicCorrelationManager:
                     is_auto_tagged=is_auto_tagged,
                     cor_length=cor_length,
                     cor_strength=cor_strength,
+                    kernel=kernel,
+                    scale_x=scale_x,
+                    cor_length_pt=cor_length_pt,
                 )
                 self.systematic_info[full_name] = sys_info
                 self.observable_systematics[obs_name].append(full_name)
@@ -638,12 +710,29 @@ class SystematicCorrelationManager:
         if self._pending_correlation_params:
             self._apply_correlation_parameters(self._pending_correlation_params)
 
+    def register_observable_positions(self, observable_positions: dict[str, np.ndarray]) -> None:
+        """
+        Register per-observable bin-center positions (e.g. pT) for pT-rescaled kernels.
+
+        Keys must match the observable labels used in observable_ranges. These positions are
+        only consumed by the 'gauss' summed kernel (paper arXiv:2408.08247v2, Eq. 10), which
+        measures bin separation as a distance in (optionally rescaled) pT rather than in bin
+        index. Observables without a registered position array fall back to an identity
+        correlation for the gauss kernel (a warning is logged at covariance-build time).
+
+        :param observable_positions: dict observable_label -> 1D array of bin-center positions
+        """
+        self._observable_positions = {label: np.asarray(pos, dtype=float) for label, pos in observable_positions.items()}
+        logger.info(f"Registered bin-center positions for {len(self._observable_positions)} observable(s)")
+
     def resolve_bin_counts(self, observable_ranges: list[tuple[int, int, str]]) -> None:
         """
         Resolve cor_length=-1 to actual bin counts for SUMMED systematics only.
 
         Individual systematics are always fully correlated and don't use cor_length.
         This method only updates summed systematics that have cor_length=-1.
+        The 'gauss' kernel is skipped: its correlation length lives in `cor_length_pt`
+        (rescaled-pT units), not in bin-based cor_length.
 
         Args:
             observable_ranges: List of (start_idx, end_idx, observable_label)
@@ -663,6 +752,10 @@ class SystematicCorrelationManager:
         # Update only summed systematics with cor_length=-1
         for full_name, sys_info in self.systematic_info.items():
             if not sys_info.is_summed:
+                continue
+
+            if sys_info.kernel == "gauss":
+                # gauss measures separation in rescaled pT (cor_length_pt), not bin-based cor_length
                 continue
 
             if sys_info.cor_length == -1:
@@ -723,16 +816,71 @@ class SystematicCorrelationManager:
             # Actual correlation handled by outer product in covariance calculation
             return np.eye(n_bins)
 
-        # Summed systematic: use exponential decay correlation
-        cor_length = sys_info.cor_length
+        # For the gauss kernel we need this observable's pT positions; locate them by finding
+        # which observable range owns this summed systematic (full_name is 'sum_<obs_name>').
+        positions = None
+        if sys_info.kernel == "gauss":
+            positions = self._positions_for_summed_systematic(systematic_full_name)
+
+        return self._build_summed_correlation_matrix(sys_info, n_bins, positions)
+
+    def _positions_for_summed_systematic(self, systematic_full_name: str) -> np.ndarray | None:
+        """Find the registered bin-center positions for the observable owning a summed systematic."""
+        for obs_label, sys_list in self.observable_systematics.items():
+            if systematic_full_name not in sys_list:
+                continue
+            for _start, _end, range_label in self._observable_ranges:
+                if range_label == obs_label:
+                    return self._observable_positions.get(range_label)
+        return None
+
+    def _build_summed_correlation_matrix(
+        self, sys_info: SystematicInfo, n_bins: int, positions: np.ndarray | None = None
+    ) -> np.ndarray:
+        """
+        Build the (n_bins, n_bins) intra-observable correlation matrix for one summed systematic.
+
+        Dispatches on sys_info.kernel:
+          - "exp":   rho(i,j) = cor_strength * exp(-|i-j| / cor_length)      (bin index; legacy/STAT)
+          - "gauss": rho(i,j) = cor_strength * exp(-((p_i - p_j) / cor_length_pt)^2)   (paper Eq. 10),
+                     with pT linearly rescaled to [0,1] per observable when scale_x=True.
+        Diagonal is forced to 1.0 in both cases.
+        """
         cor_strength = sys_info.cor_strength
 
-        logger.debug(f"Building exponential correlation matrix for '{systematic_full_name}':")
+        if sys_info.kernel == "gauss":
+            if positions is None or len(positions) != n_bins:
+                logger.warning(
+                    f"gauss kernel for '{sys_info.full_name}' has no matching pT positions "
+                    f"(got {None if positions is None else len(positions)}, need {n_bins}); "
+                    f"falling back to identity (uncorrelated)."
+                )
+                return np.eye(n_bins)
+
+            p = np.asarray(positions, dtype=float)
+            if sys_info.scale_x:
+                span = p.max() - p.min()
+                if span > 0:
+                    p = (p - p.min()) / span  # rescale each observable's pT to [0, 1]
+            diff = p[:, None] - p[None, :]
+            C = cor_strength * np.exp(-((diff / sys_info.cor_length_pt) ** 2))
+            np.fill_diagonal(C, 1.0)
+            logger.debug(
+                f"Built gauss correlation matrix for '{sys_info.full_name}': "
+                f"n_bins={n_bins}, cor_length_pt={sys_info.cor_length_pt}, "
+                f"strength={cor_strength}, scale_x={sys_info.scale_x}"
+            )
+            return C
+
+        # exp kernel: exponential decay in bin index (legacy)
+        cor_length = sys_info.cor_length
+
+        logger.debug(f"Building exponential correlation matrix for '{sys_info.full_name}':")
         logger.debug(f"  n_bins={n_bins}, cor_length={cor_length}, cor_strength={cor_strength}")
 
         # Check if cor_length still needs resolution
         if cor_length == -1:
-            logger.warning(f"cor_length=-1 for '{systematic_full_name}' not yet resolved!")
+            logger.warning(f"cor_length=-1 for '{sys_info.full_name}' not yet resolved!")
             logger.warning("Using full correlation (cor_length=n_bins) as fallback")
             cor_length = n_bins
 
@@ -742,9 +890,10 @@ class SystematicCorrelationManager:
         C = cor_strength * np.exp(-distance / cor_length)
         np.fill_diagonal(C, 1.0)
 
-        logger.debug(f"  Matrix shape: {C.shape}")
-        logger.debug(f"  Min off-diagonal correlation: {np.min(C[~np.eye(n_bins, dtype=bool)]):.6f}")
-        logger.debug(f"  Max off-diagonal correlation: {np.max(C[~np.eye(n_bins, dtype=bool)]):.6f}")
+        if n_bins > 1:
+            logger.debug(f"  Matrix shape: {C.shape}")
+            logger.debug(f"  Min off-diagonal correlation: {np.min(C[~np.eye(n_bins, dtype=bool)]):.6f}")
+            logger.debug(f"  Max off-diagonal correlation: {np.max(C[~np.eye(n_bins, dtype=bool)]):.6f}")
 
         return C
 
@@ -890,8 +1039,10 @@ class SystematicCorrelationManager:
                         n_bins = end - start
                         sys_uncertainties = systematic_uncertainties[start:end, sys_idx]
 
-                        # Build intra-observable correlation matrix
-                        C = self.build_intra_observable_correlation_matrix(sys_full_name, n_bins)
+                        # Build intra-observable correlation matrix. The gauss kernel needs
+                        # this observable's pT bin centers (obs_name is the range label).
+                        positions = self._observable_positions.get(obs_name)
+                        C = self._build_summed_correlation_matrix(sys_info, n_bins, positions)
 
                         # Add to covariance (only within observable, no cross-observable terms)
                         cov_block = np.outer(sys_uncertainties, sys_uncertainties) * C
@@ -899,7 +1050,8 @@ class SystematicCorrelationManager:
 
                         logger.debug(
                             f"  Added summed systematic: {sys_full_name} for {obs_label} "
-                            f"(cor_length={sys_info.cor_length}, cor_strength={sys_info.cor_strength})"
+                            f"(kernel={sys_info.kernel}, cor_length={sys_info.cor_length}, "
+                            f"cor_length_pt={sys_info.cor_length_pt}, cor_strength={sys_info.cor_strength})"
                         )
                         obs_found = True
                         break
@@ -1017,6 +1169,9 @@ class SystematicCorrelationManager:
                     "is_auto_tagged": info.is_auto_tagged,
                     "cor_length": info.cor_length,
                     "cor_strength": info.cor_strength,
+                    "kernel": info.kernel,
+                    "scale_x": info.scale_x,
+                    "cor_length_pt": info.cor_length_pt,
                 }
                 for full_name, info in self.systematic_info.items()
             },
@@ -1085,6 +1240,9 @@ class SystematicCorrelationManager:
                 is_auto_tagged=bool(_unwrap(info_dict.get("is_auto_tagged", False))),
                 cor_length=int(_unwrap(info_dict.get("cor_length", -1))),
                 cor_strength=float(_unwrap(info_dict.get("cor_strength", 1.0))),
+                kernel=str(_unwrap(info_dict.get("kernel", "exp"))),
+                scale_x=bool(_unwrap(info_dict.get("scale_x", False))),
+                cor_length_pt=float(_unwrap(info_dict.get("cor_length_pt", 0.2))),
             )
 
         # Restore other attributes

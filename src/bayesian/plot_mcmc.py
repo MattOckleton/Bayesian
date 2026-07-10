@@ -254,6 +254,12 @@ def _plot_posterior_pairplot(chain, plot_dir, config, holdout_test=False, holdou
     # Flatten chain to shape (n_steps*n_walkers, n_dim)
     samples = chain.reshape((chain.shape[0] * chain.shape[1], chain.shape[2]))
 
+    # Chain is stored in working space (log-scaled c-parameters); convert to physical for display.
+    param_cfg = config.analysis_config["parameterization"][config.parameterization]
+    samples = data_IO.to_physical_space(samples, param_cfg)
+    if holdout_point is not None:
+        holdout_point = data_IO.to_physical_space(holdout_point, param_cfg)
+
     # Construct dataframe of samples
     names = [rf"{s}" for s in config.analysis_config["parameterization"][config.parameterization]["names"]]
     df = pd.DataFrame(samples, columns=names)

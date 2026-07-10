@@ -372,9 +372,14 @@ def _plot_emulator_observables(
         Y, observables, validation_set=validation_set, observable_filter=observable_filter
     )
 
+    # Design is stored in physical space; convert to working space before emulator predict.
+    parameterization = analysis_settings.parameterization
+    param_cfg = analysis_settings.raw_analysis_config["parameterization"][parameterization]
+    design_working = data_IO.to_working_space(design, param_cfg)
+
     # Get emulator predictions for this group only
     group_predictions = emulation.predict(
-        design,
+        design_working,
         emulation_config,
         analysis_settings=analysis_settings,
         emulator_results={emulator_name: results},
@@ -457,9 +462,14 @@ def _plot_emulator_residuals(
         Y, observables, validation_set=validation_set, observable_filter=observable_filter
     )
 
+    # Design is stored in physical space; convert to working space before emulator predict.
+    parameterization = analysis_settings.parameterization
+    param_cfg = analysis_settings.raw_analysis_config["parameterization"][parameterization]
+    design_working = data_IO.to_working_space(design, param_cfg)
+
     # Get emulator predictions for this group only
     group_predictions = emulation.predict(
-        design,
+        design_working,
         emulation_config,
         analysis_settings=analysis_settings,
         emulator_results={emulator_name: results},
