@@ -4802,6 +4802,35 @@ inclusive_jet:
       eta: 3.0
       pt: [200., 600.]
 
+  # Per-R aliases: current convert_tables.py names each R separately.
+  pt_R0.2_alice:
+    xtitle: "#it{p}_{T,jet} (GeV/#it{c})"
+    ytitle_AA: "#it{R}_{AA}"
+  pt_R0.4_alice:
+    xtitle: "#it{p}_{T,jet} (GeV/#it{c})"
+    ytitle_AA: "#it{R}_{AA}"
+  pt_R0.4_atlas:
+    xtitle: "#it{p}_{T,jet} (GeV/#it{c})"
+    ytitle_AA: "#it{R}_{AA}"
+  pt_R0.2_cms:
+    xtitle: "#it{p}_{T,jet} (GeV/#it{c})"
+    ytitle_AA: "#it{R}_{AA}"
+  pt_R0.3_cms:
+    xtitle: "#it{p}_{T,jet} (GeV/#it{c})"
+    ytitle_AA: "#it{R}_{AA}"
+  pt_R0.4_cms:
+    xtitle: "#it{p}_{T,jet} (GeV/#it{c})"
+    ytitle_AA: "#it{R}_{AA}"
+  pt_R0.6_cms:
+    xtitle: "#it{p}_{T,jet} (GeV/#it{c})"
+    ytitle_AA: "#it{R}_{AA}"
+  pt_R0.8_cms:
+    xtitle: "#it{p}_{T,jet} (GeV/#it{c})"
+    ytitle_AA: "#it{R}_{AA}"
+  pt_R1.0_cms:
+    xtitle: "#it{p}_{T,jet} (GeV/#it{c})"
+    ytitle_AA: "#it{R}_{AA}"
+
 #------------------------------------------------------------------
 # Hadron triggered charged-particle jet observables
 # (e.g. semi-inclusive h-jet)
