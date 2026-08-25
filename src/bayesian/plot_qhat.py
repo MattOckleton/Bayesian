@@ -254,7 +254,7 @@ def _plot_single_parameter_observable_sensitivity(map_parameters, i_parameter, p
     emulation_config = emulation.EmulationConfig.from_config_file(
         analysis_settings=config.analysis_settings,
     )
-    emulation_results = emulation_config.read_all_emulator_groups()
+    emulation_results = emulation_config.read_all_emulator_groups(config.analysis_settings)
     emulator_predictions_x = emulation.predict(
         x, emulation_config, emulator_results=emulation_results, analysis_settings=config.analysis_settings
     )

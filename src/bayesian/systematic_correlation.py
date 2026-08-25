@@ -743,8 +743,10 @@ class SystematicCorrelationManager:
         np.fill_diagonal(C, 1.0)
 
         logger.debug(f"  Matrix shape: {C.shape}")
-        logger.debug(f"  Min off-diagonal correlation: {np.min(C[~np.eye(n_bins, dtype=bool)]):.6f}")
-        logger.debug(f"  Max off-diagonal correlation: {np.max(C[~np.eye(n_bins, dtype=bool)]):.6f}")
+        # Single-bin observables have no off-diagonal entries; np.min/np.max would raise.
+        if n_bins > 1:
+            logger.debug(f"  Min off-diagonal correlation: {np.min(C[~np.eye(n_bins, dtype=bool)]):.6f}")
+            logger.debug(f"  Max off-diagonal correlation: {np.max(C[~np.eye(n_bins, dtype=bool)]):.6f}")
 
         return C
 
