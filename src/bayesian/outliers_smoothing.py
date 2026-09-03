@@ -399,9 +399,16 @@ def perform_interpolation_on_values(
     mask[points_to_interpolate] = False
 
     # Further validation
-    if len(bin_centers[mask]) == 1:
-        # Skip - we can't interpolate one point.
-        msg = f"Can't interpolate due to only one point left to anchor the interpolation. {mask=}"
+    # NOTE: <= 1 rather than == 1: if every feature of the observable is flagged as an outlier for
+    #       this design point, the mask is all-False and there is nothing left to anchor on. That
+    #       case reached np.interp and raised an uncaught `ValueError: array of sample points is
+    #       empty`, whereas the caller already handles CannotInterpolateDueToOnePointError.
+    if len(bin_centers[mask]) <= 1:
+        # Skip - we can't interpolate from one point or fewer.
+        msg = (
+            f"Can't interpolate due to only {len(bin_centers[mask])} point(s) left to anchor"
+            f" the interpolation. {mask=}"
+        )
         raise CannotInterpolateDueToOnePointError(msg)
 
     # NOTE: ROOT::Interpolator uses a Cubic Spline, so this might be a reasonable future approach
@@ -509,12 +516,18 @@ def identify_design_points_to_filter(
     """
     # Count problematic features per design point
     design_point_problem_count: dict[int, int] = {}
-    total_features_per_design_point: dict[int, int] = {}
+    # NOTE: Every design point appears in every observable, so the total number of features
+    #       (ie. bins summed over all observables) is the same for all design points.
+    #       It must be accumulated once per observable, *not* once per problematic feature -
+    #       otherwise the numerator cancels out of the fraction below and the result only
+    #       reflects the binning of the observables rather than the quality of the design point.
+    n_features_total = 0
 
     for obs_label, obs_data in observables[prediction_key].items():  # noqa: B007
         values = obs_data["y"]  # shape: (n_bins, n_design_points)
         uncertainties = obs_data["y_err_stat"]  # shape: (n_bins, n_design_points)
         n_bins, _n_design_points = values.shape
+        n_features_total += n_bins
 
         # Identify problematic points
         _feature_indices, design_point_indices = identify_high_uncertainty_points_absolute_threshold(
@@ -524,16 +537,15 @@ def identify_design_points_to_filter(
         # Count problems per design point
         for dp_idx in design_point_indices:
             design_point_problem_count[dp_idx] = design_point_problem_count.get(dp_idx, 0) + 1
-            total_features_per_design_point[dp_idx] = total_features_per_design_point.get(dp_idx, 0) + n_bins
 
     # Determine which design points to filter
     design_points_to_filter = []
     for dp_idx, count in design_point_problem_count.items():
-        problem_fraction = count / total_features_per_design_point[dp_idx]
+        problem_fraction = count / n_features_total
         if problem_fraction > config.problem_fraction_threshold:
             design_points_to_filter.append(dp_idx)
             logger.debug(
-                f"Design point {dp_idx}: {count}/{total_features_per_design_point[dp_idx]} "
+                f"Design point {dp_idx}: {count}/{n_features_total} "
                 f"({problem_fraction:.1%}) features problematic"
             )
 
