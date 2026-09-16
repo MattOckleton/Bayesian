@@ -880,36 +880,46 @@ class SystematicCorrelationManager:
 
             sys_idx = systematic_names.index(sys_full_name)
 
-            # Find which observable this summed systematic belongs to
-            obs_found = False
-            for obs_label, sys_list in self.observable_systematics.items():
-                if sys_full_name not in sys_list:
+            # Find every observable this summed systematic covers.
+            #
+            # NOTE: `observable_systematics` is keyed by the registry key taken from the
+            #       YAML (eg. 'hadron__pt_'), whereas `_observable_ranges` carries the full
+            #       runtime label (eg. '2760__PbPb__hadron__pt_ch_alice____0-5'). Comparing
+            #       the two with `==` can never match, so this loop contributed nothing;
+            #       combined with PATH 1 skipping empty tags, the whole matrix came back
+            #       zero and systematics silently vanished from the likelihood. Resolve via
+            #       `_resolve_observable_key`, the substring / longest-match convention used
+            #       everywhere else in the codebase.
+            #
+            # NOTE: a summed systematic covers EVERY observable matching its registry key,
+            #       so each matching range contributes its own block. The previous code
+            #       stopped at the first match, which would have yielded a single block
+            #       rather than one per observable even had the comparison succeeded.
+            n_blocks = 0
+            for start, end, obs_name in self._observable_ranges:
+                registry_key = self._resolve_observable_key(obs_name)
+                if registry_key is None:
+                    continue
+                if sys_full_name not in self.observable_systematics[registry_key]:
                     continue
 
-                # Find the feature range for this observable
-                for start, end, obs_name in self._observable_ranges:
-                    if obs_name == obs_label:
-                        n_bins = end - start
-                        sys_uncertainties = systematic_uncertainties[start:end, sys_idx]
+                n_bins = end - start
+                sys_uncertainties = systematic_uncertainties[start:end, sys_idx]
 
-                        # Build intra-observable correlation matrix
-                        C = self.build_intra_observable_correlation_matrix(sys_full_name, n_bins)
+                # Build intra-observable correlation matrix
+                C = self.build_intra_observable_correlation_matrix(sys_full_name, n_bins)
 
-                        # Add to covariance (only within observable, no cross-observable terms)
-                        cov_block = np.outer(sys_uncertainties, sys_uncertainties) * C
-                        total_cov[start:end, start:end] += cov_block
+                # Add to covariance (only within observable, no cross-observable terms)
+                cov_block = np.outer(sys_uncertainties, sys_uncertainties) * C
+                total_cov[start:end, start:end] += cov_block
+                n_blocks += 1
 
-                        logger.debug(
-                            f"  Added summed systematic: {sys_full_name} for {obs_label} "
-                            f"(cor_length={sys_info.cor_length}, cor_strength={sys_info.cor_strength})"
-                        )
-                        obs_found = True
-                        break
-
-                if obs_found:
-                    break
-
-            if not obs_found:
+            if n_blocks:
+                logger.debug(
+                    f"  Added summed systematic: {sys_full_name} over {n_blocks} observable(s) "
+                    f"(cor_length={sys_info.cor_length}, cor_strength={sys_info.cor_strength})"
+                )
+            else:
                 logger.warning(f"Could not find observable range for summed systematic '{sys_full_name}'")
 
         # Handle uncorrelated systematics (diagonal only)

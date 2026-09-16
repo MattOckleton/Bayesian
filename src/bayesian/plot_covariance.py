@@ -198,44 +198,67 @@ def _compute_systematic_group_covariances(
 
     group_covariances = {}
 
-    # Mirror the merge-by-tag logic from
-    # SystematicCorrelationManager.create_systematic_covariance_matrix:
-    # within each tag, sum per-bin contributions across all base names (sources are
-    # treated as one shared underlying systematic), then form a single outer-product
-    # block over the union of bins.
+    # Mirror BOTH paths of SystematicCorrelationManager.create_systematic_covariance_matrix,
+    # branching on the tag exactly as the engine does. Previously this function applied the
+    # tagged (cross-observable) construction to every group including the empty tag, so with
+    # summed systematics - which all carry an empty tag - it produced one block spanning all
+    # observables where the engine produces one block per observable. The diagonals agreed,
+    # so the traces matched, but every cross-observable off-diagonal was spurious; that is
+    # what made _verify_systematic_covariance_consistency report a permanent MISMATCH.
     for group_tag, group_members in correlation_manager.correlation_groups.items():
         group_cov = np.zeros((n_features, n_features))
 
-        bin_sigma_sq = defaultdict(float)
-        cor_length = correlation_manager.default_cor_length
-        cor_strength = correlation_manager.default_cor_strength
-        for obs_label, start, end, sys_full_name in group_members:
-            if sys_full_name not in systematic_names:
-                continue
-            sys_idx = systematic_names.index(sys_full_name)
-            sys_info = correlation_manager.systematic_info.get(sys_full_name)
-            if not sys_info:
-                continue
-            cor_length = sys_info.cor_length
-            cor_strength = sys_info.cor_strength
-            col = systematic_uncertainties[:, sys_idx]
-            for b in range(start, end):
-                bin_sigma_sq[b] += float(col[b]) ** 2
+        if group_tag:
+            # PATH 1 mirror - tagged systematics. The tag marks one shared physical source
+            # (eg. a common Glauber T_AA), so its bins ARE correlated across observables:
+            # sum per-bin contributions across the tag's base names, then form a single
+            # outer-product block over the union of bins. Retained in full so that tagged,
+            # genuinely cross-observable configurations continue to render correctly.
+            bin_sigma_sq = defaultdict(float)
+            cor_length = correlation_manager.default_cor_length
+            cor_strength = correlation_manager.default_cor_strength
+            for obs_label, start, end, sys_full_name in group_members:
+                if sys_full_name not in systematic_names:
+                    continue
+                sys_idx = systematic_names.index(sys_full_name)
+                sys_info = correlation_manager.systematic_info.get(sys_full_name)
+                if not sys_info:
+                    continue
+                cor_length = sys_info.cor_length
+                cor_strength = sys_info.cor_strength
+                col = systematic_uncertainties[:, sys_idx]
+                for b in range(start, end):
+                    bin_sigma_sq[b] += float(col[b]) ** 2
 
-        if bin_sigma_sq:
-            sorted_bins = sorted(bin_sigma_sq.keys())
-            idx = np.asarray(sorted_bins)
-            u = np.sqrt(np.asarray([bin_sigma_sq[b] for b in sorted_bins]))
+            if bin_sigma_sq:
+                sorted_bins = sorted(bin_sigma_sq.keys())
+                idx = np.asarray(sorted_bins)
+                u = np.sqrt(np.asarray([bin_sigma_sq[b] for b in sorted_bins]))
 
-            if cor_length == -1:
-                block = np.outer(u, u)
-            else:
-                local = np.arange(len(idx))
-                distance = np.abs(local[:, None] - local[None, :])
-                correlation = cor_strength * np.exp(-distance / cor_length)
-                np.fill_diagonal(correlation, 1.0)
-                block = correlation * np.outer(u, u)
-            group_cov[np.ix_(idx, idx)] += block
+                if cor_length == -1:
+                    block = np.outer(u, u)
+                else:
+                    local = np.arange(len(idx))
+                    distance = np.abs(local[:, None] - local[None, :])
+                    correlation = cor_strength * np.exp(-distance / cor_length)
+                    np.fill_diagonal(correlation, 1.0)
+                    block = correlation * np.outer(u, u)
+                group_cov[np.ix_(idx, idx)] += block
+        else:
+            # PATH 2 mirror - summed systematics (empty tag). Each observable is independent,
+            # so every member contributes its own block over its own feature range and there
+            # are no cross-observable terms.
+            for _obs_label, start, end, sys_full_name in group_members:
+                if sys_full_name not in systematic_names:
+                    continue
+                sys_info = correlation_manager.systematic_info.get(sys_full_name)
+                if not sys_info or not sys_info.is_summed:
+                    continue
+                sys_idx = systematic_names.index(sys_full_name)
+                n_bins = end - start
+                sys_uncertainties = systematic_uncertainties[start:end, sys_idx]
+                C = correlation_manager.build_intra_observable_correlation_matrix(sys_full_name, n_bins)
+                group_cov[start:end, start:end] += np.outer(sys_uncertainties, sys_uncertainties) * C
 
         group_covariances[f"systematic_group_{group_tag}"] = group_cov
         logger.info(f"Systematic group '{group_tag}': variance {np.trace(group_cov):.2e}")
