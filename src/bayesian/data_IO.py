@@ -1054,9 +1054,13 @@ def initialize_observables_dict_from_tables(
     # We will construct a dict containing all observables
     observables = _recursive_defaultdict()
 
-    # We separate out the validation indices specified in the config
+    # We separate out the validation indices specified in the config.
+    # NOTE: These are design point IDs, and must stay untouched for every file read below.
+    #       `_split_training_validation_indices` returns numpy *positions* within one file, which
+    #       differ from the IDs whenever a file is missing design points. Storing those positions
+    #       back into this variable made each subsequent file select the wrong design points.
     validation_range = analysis_config["validation_indices"]
-    validation_indices = range(validation_range[0], validation_range[1])
+    validation_design_point_ids = range(validation_range[0], validation_range[1])
 
     # ----------------------
     # Read experimental data
@@ -1232,7 +1236,7 @@ def initialize_observables_dict_from_tables(
             training_indices, training_design_points, validation_indices, validation_design_points = (
                 _split_training_validation_indices(
                     design_points=design_points,
-                    validation_indices=validation_indices,
+                    validation_indices=validation_design_point_ids,
                     design_points_to_exclude=design_points_to_exclude,
                 )
             )
@@ -1343,7 +1347,7 @@ def initialize_observables_dict_from_tables(
                 )
                 training_indices, _, validation_indices, _ = _split_training_validation_indices(
                     design_points=design_points,
-                    validation_indices=validation_indices,
+                    validation_indices=validation_design_point_ids,
                     design_points_to_exclude=design_points_to_exclude,
                 )
 
