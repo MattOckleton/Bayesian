@@ -311,8 +311,10 @@ def predict(
 
     # Include predictive variance due to truncated PCs.
     # See comments in mcmc.py for further details.
+    # NOTE: This is a per-point variance, so it is added in full to every sample. It must not be divided by
+    #       n_samples, which would make the uncertainty depend on how many points are predicted in one call.
     for i_sample in range(n_samples):
-        emulator_cov_reconstructed_scaled[i_sample] += additional_covariance / n_samples
+        emulator_cov_reconstructed_scaled[i_sample] += additional_covariance
 
     # Propagate uncertainty: inverse preprocessing
     # We only need to undo the unit variance scaling, since the shift does not affect the covariance matrix.
