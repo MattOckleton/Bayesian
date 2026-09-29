@@ -154,6 +154,14 @@ def fit_emulator(
             kernel = sklearn_gaussian_process.kernels.RBF(
                 length_scale=length_scale, length_scale_bounds=length_scale_bounds
             )
+
+    # Give the base kernel a fitted amplitude. RBF and Matern alone have unit variance, so without this the GP
+    # cannot represent the scale of the PC scores (which are O(10) for the leading PCs since whiten=False),
+    # and its predictive uncertainty is capped by the kernel variance plus the noise bound.
+    kernel = sklearn_gaussian_process.kernels.ConstantKernel(constant_value=1.0) * kernel
+
+    # Then add the additive terms. These must come after the amplitude, so they are not scaled by it.
+    for kernel_type, kernel_args in emulator_settings.active_kernels.items():
         if kernel_type == "constant":
             constant_value = kernel_args["constant_value"]
             constant_value_bounds = kernel_args["constant_value_bounds"]
@@ -178,6 +186,9 @@ def fit_emulator(
             kernel=kernel,
             alpha=emulator_settings.alpha,
             n_restarts_optimizer=emulator_settings.n_restarts,
+            # Standardize each PC's scores before fitting, so the kernel and noise bounds are relative to that PC's
+            # variance rather than absolute. (The PC variances span orders of magnitude.)
+            normalize_y=True,
             copy_X_train=False,
         ).fit(design, y)
         for y in Y_pca_truncated.T
