@@ -73,6 +73,18 @@ def _plot_pca_explained_variance(results, plot_dir, emulator_settings):
     plt.ylabel("fraction explained variance", fontsize=16)
     plt.grid(True)
     plt.plot(x, y, linewidth=2, linestyle="-", alpha=1.0, color=sns.xkcd_rgb["dark sky blue"])
+    # Mark the selected n_pc and the cumulative variance it retains
+    y_selected = np.sum(pca.explained_variance_ratio_[:n_pc_selected])
+    plt.axvline(n_pc_selected, color=sns.xkcd_rgb["pale red"], linewidth=1.5, linestyle="--")
+    plt.plot(n_pc_selected, y_selected, "o", color=sns.xkcd_rgb["pale red"])
+    plt.annotate(
+        f"{100 * y_selected:.1f}%",
+        xy=(n_pc_selected, y_selected),
+        xytext=(8, -16),
+        textcoords="offset points",
+        fontsize=14,
+        color=sns.xkcd_rgb["pale red"],
+    )
     plt.plot([], [], " ", label=f"n_pc_selected= {n_pc_selected}")
     plt.legend(frameon=False)
     plt.tight_layout()
@@ -95,18 +107,36 @@ def _plot_pca_reconstruction_error(results, plot_dir, emulator_settings):
     n_pc_max = 30
     n_pc_selected = emulator_settings.n_pc
 
+    # RMS residual per observable bin, in the observables' own units (R_AA): the summed squared
+    # residual grows with the number of bins, so it could not be compared between analyses.
+    n_bins = Y.shape[1]
     x = range(n_pc_max)
     y = [
-        np.sum((Y - scaler.inverse_transform(Y_pca[:, :n_pc].dot(pca.components_[:n_pc, :]))) ** 2, axis=1).mean()
+        np.sqrt(
+            np.sum((Y - scaler.inverse_transform(Y_pca[:, :n_pc].dot(pca.components_[:n_pc, :]))) ** 2, axis=1).mean()
+            / n_bins
+        )
         for n_pc in x
     ]
 
     plt.title("PCA: reconstruction error", fontsize=14)
     plt.xlabel("number of principal components", fontsize=16)
-    plt.ylabel("reconstruction error", fontsize=16)
+    plt.ylabel(r"RMS reconstruction error per bin ($R_{AA}$)", fontsize=14)
     plt.grid(True)
     plt.plot(x, y, linewidth=2, linestyle="-", alpha=1.0, color=sns.xkcd_rgb["dark sky blue"])
-    plt.plot([], [], " ", label=f"n_pc = {n_pc_selected}")
+    # Mark the selected n_pc and the error it leaves
+    y_selected = y[n_pc_selected]
+    plt.axvline(n_pc_selected, color=sns.xkcd_rgb["pale red"], linewidth=1.5, linestyle="--")
+    plt.plot(n_pc_selected, y_selected, "o", color=sns.xkcd_rgb["pale red"])
+    plt.annotate(
+        f"{y_selected:.3f}",
+        xy=(n_pc_selected, y_selected),
+        xytext=(8, 8),
+        textcoords="offset points",
+        fontsize=14,
+        color=sns.xkcd_rgb["pale red"],
+    )
+    plt.plot([], [], " ", label=f"n_pc = {n_pc_selected}, {n_bins} bins")
     plt.legend(frameon=False)
     plt.tight_layout()
     plt.savefig(plot_dir / "PCA_reconstruction_error.pdf")
