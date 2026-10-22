@@ -610,7 +610,8 @@ def _plot_covariance_diagnostics(cov_components: dict[str, np.ndarray], plot_dir
     ax = axes[1, 1]
     traces = {}
     for comp_name, cov_matrix in cov_components.items():
-        if comp_name != "total":  # Skip total to see components
+        # Skip total, and the individual systematic groups (they sum to systematic_total)
+        if comp_name != "total" and not comp_name.startswith("systematic_group_"):
             traces[comp_name] = np.trace(cov_matrix)
 
     # Create pie chart of trace contributions
