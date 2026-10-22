@@ -1,0 +1,204 @@
+# JETSCAPE Bayesian - q-hat analysis run on the CURRENT framework's own machinery.
+#
+# NOT a faithful replication of arXiv:2408.08247v2. Same dataset and same three
+# inferences, but deliberately using what this framework ships rather than patching it
+# to match the paper. Full rationale: /user/mockleton/jetscape/QHAT_ANALYSIS.md
+#
+# Deliberate departures from the published analysis:
+#   Systematics : legacy summed mode, sum:1000:0.8 uniformly. L=1000 removes bin
+#                 separation from the kernel (bin widths vary 5-60x within a single
+#                 observable, so any finite L would encode binning, not physics);
+#                 S=0.8 is the fraction of systematic variance taken as common across
+#                 each observable's pT range. The paper's Gaussian-on-rescaled-pT
+#                 kernel with l=0.2 is NOT reproduced - it cannot be expressed here.
+#   Parameters  : c1,c2,c3 are sampled and emulated in LINEAR space. The published
+#                 analysis used log space; this framework has no log-scaling support.
+#   Validation  : 30 of the 200 real design points are held out (indices 170-199), so
+#                 the emulator can be validated. The paper's 30 extra validation design
+#                 points were never supplied with this dataset.
+#
+# Carried over from the published analysis:
+#   Emulator : RBF + white-noise kernel, 4 principal components, 50 restarts
+#   MCMC     : 50 walkers, 5000 burn (sampling raised to 15000, see below)
+#   Data cut : MinPT = 9 GeV (the original per-observable DataExclude lists were all
+#              contiguous low-pT prefixes, i.e. exactly this cut)
+#   Three analyses: jet-only, hadron-only, combined, each with a SINGLE emulator group
+#   (one PCA over its full feature space), matching the original single-emulator design.
+#
+# Run from the repo root, flipping ONE stage flag at a time:
+#   cd /user/mockleton/jetscape/Bayesian
+#   python src/bayesian/steer_analysis.py -c config/q_hat_replication.yaml
+#
+output_dir: '/user/mockleton/jetscape/q_hat_replication/results_dp19_filtered/'
+observable_table_dir: '/user/mockleton/jetscape/q_hat_replication/tables'
+observable_config_dir: 'config'
+observables_filename: "observables_preprocessed.h5"
+
+# Run ONE stage at a time, in order.
+initialize_observables: True
+preprocess_input_data: True
+fit_emulators: True
+run_mcmc: True
+run_closure_tests: True
+
+plot:
+  input_data: True
+  emulators: True
+  mcmc: True
+  qhat: True
+  closure_tests: True
+  covariance: True
+  across_analyses: True
+
+# ----------------------------------------------------------------------------------
+parameters:
+  preprocessing_parameters: &default_preprocessing
+    filtering:
+      enable: true
+      method: relative_statistical_error
+      threshold: 0.7                  # uncertainty / value min for a specific pt bin, specific dp to be marked as bad
+      problem_fraction_threshold: 0.015 # fraction of problematic bins in a DP to exclude DP
+      max_filtered_fraction: 0.2      # if filtering over this fraction, nothing is filtered, warning in log
+      min_design_points: 50           # if n design points is less than this, nothing is filtered, warning in log
+    smoothing:
+      outlier_n_RMS: 2.0
+      interpolation_method: "linear"
+      max_n_feature_outliers_to_interpolate: 2
+
+  # Emulator: RBFNoise + NPC=4 + NRetrain=50  (from RBF_N4 'Emulator' block)
+  emulator_parameters: &default_emulator
+    emulator_package: sk_learn
+    force_retrain: False
+    kernels:
+      active: ['rbf', 'noise']          # <-- RBF (not matern), as in the original
+      rbf:
+        length_scale_bounds_factor: [0.01, 100]
+      noise:
+        type: "white"
+        args:
+          noise_level: 0.25
+          noise_level_bounds: [0.0001, 1]
+    GPR:
+      n_restarts: 50                     # NRetrain: 50
+      alpha: 1.e-10
+
+  # MCMC: NWalker=50, NBurn=5000 (from RBF_N4 'MCMC' block). NStep raised from 5000 to
+  # 15000: the combined run has tau~420, so 5000 steps is only ~12 tau (2026-10-01).
+  mcmc_parameters: &default_mcmc
+    n_walkers: 50
+    n_burn_steps: 5000
+    n_sampling_steps: 15000
+    n_logging_steps: 100
+
+  closure_parameters: &default_closure
+    confidence: 0.9
+
+# ----------------------------------------------------------------------------------
+analysis_base: &model_base
+  model_name: 'MATTER+LBT'
+  parameterizations: ['exponential']
+  sqrts_list: [200, 2760, 5020]
+  centrality_range: [0, 50]              # full coverage (original spans to 50%)
+  recoil_scheme: 'negative_recombiner'
+  # Parameter bounds from RBF_N4 Design.Range.
+  # NOTE (deviation #2): indices 2,3,5 (c1,c2,c3) were LogScale in the original.
+  parameterization:
+    exponential:
+      names: ['$\alpha_S^{\rm fix}$', '$Q_0$', '$c_1$', '$c_2$', '$\tau_0$', '$c_3$']
+      # Lower bounds for c1,c2,c3 are e^-5, e^-5, e^-3, taken verbatim from the
+      # Design__exponential.dat header. Do NOT round them: the prior is uniform in
+      # linear space, so a rounded-down bound puts prior mass outside the design's support.
+      min:   [0.1, 1, 0.006737946999085467, 0.006737946999085467, 0, 0.049787068367863944]
+      max:   [0.5, 10, 10,   10,    1.5, 100]
+  alpha: 0.2
+  # Hold out 30 of the 200 real design points for emulator validation. The 30 rows the
+  # predictions carry beyond Design.dat (200-229) are excluded so that the Design and
+  # Prediction training/validation sets stay equal in size.
+  validation_indices: [170, 200]
+  design_points_to_exclude: [13, 15, 19, 103, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229]
+  # DP 19 excluded: its 2760 ALICE hadron 30-40% prediction is [1.60, 1.77, 0.71, 45.0] and survives smoothing (see results_dp19_filtered).
+
+  # MinPT = 9 GeV (reproduces every per-observable DataExclude, all low-pT prefixes).
+  # Jets start well above 9 GeV, so this only trims hadron spectra, as in the original.
+  cuts:
+    'hadron__pt_': [9, 100000]
+
+  global_observable_exclude_list:
+    # Genuinely not in the paper's 92 (ALICE charged-jet R_CP; a different observable).
+    - 'inclusive_chjet__pt_R0.2_alice'
+    - 'inclusive_chjet__pt_R0.3_alice'
+    - 'pt_y_atlas'
+    # NOTE: the 6 previously-held-out hadron observables (PHENIX pi0 0-10 & 40-50,
+    # ATLAS ch 0-5, CMS 5020 ch 0-5/5-10/30-50) are now INCLUDED. convert_tables.py
+    # aligns them to the published high-pT binning (drops the first pred-data low-pT
+    # prediction rows, verified against the original DataExclude convention) and
+    # reformats the single-x PHENIX files. Full 92 observables.
+
+# ----------------------------------------------------------------------------------
+analyses:
+
+  # ---- 1) jet-only (single PCA over all jet R_AA) ----
+  analysis_jet:
+    parameters:
+      preprocessing:
+        <<: *default_preprocessing
+      emulators:
+        all_jet:
+          <<: *default_emulator
+          n_pc: 4
+          observable_list:
+            - observable: 'jet__pt_'
+              sys_data: ['sum:1000:0.8']
+              sys_theory: []
+      mcmc:
+        <<: *default_mcmc
+      closure:
+        <<: *default_closure
+    <<: *model_base
+    # 2x3 panels per file for readability; must cover the 46 observables (8 x 6 = 48)
+    plot_panel_shapes: [[2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3]]
+
+  # ---- 2) hadron-only (single PCA over all hadron R_AA) ----
+  analysis_hadron:
+    parameters:
+      preprocessing:
+        <<: *default_preprocessing
+      emulators:
+        all_hadron:
+          <<: *default_emulator
+          n_pc: 4
+          observable_list:
+            - observable: 'hadron__pt_'
+              sys_data: ['sum:1000:0.8']
+              sys_theory: []
+      mcmc:
+        <<: *default_mcmc
+      closure:
+        <<: *default_closure
+    <<: *model_base
+    # 2x3 panels per file for readability; must cover the 46 observables (8 x 6 = 48)
+    plot_panel_shapes: [[2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3]]
+
+  # ---- 3) combined hadron + jet (single PCA over ALL 92 features, NPC=4) ----
+  analysis_combined:
+    parameters:
+      preprocessing:
+        <<: *default_preprocessing
+      emulators:
+        all_observables:
+          <<: *default_emulator
+          n_pc: 4
+          observable_list:
+            - observable: 'hadron__pt_'
+              sys_data: ['sum:1000:0.8']
+              sys_theory: []
+            - observable: 'jet__pt_'
+              sys_data: ['sum:1000:0.8']
+              sys_theory: []
+      mcmc:
+        <<: *default_mcmc
+      closure:
+        <<: *default_closure
+    <<: *model_base
+    # 2x3 panels per file for readability; must cover the 92 observables (16 x 6 = 96)
+    plot_panel_shapes: [[2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3]]
