@@ -601,16 +601,34 @@ def _plot_emulator_residuals(
     plt.setp(ax_residual.get_xticklabels(), fontsize=14)
     plt.setp(ax_residual.get_yticklabels(), fontsize=14)
 
-    # Plot the actual 1-sigma, 2-sigma lines
-    lower_1sigma = np.percentile(normalized_residual, (100 - 68.27) / 2)
-    upper_1sigma = np.percentile(normalized_residual, 100 - (100 - 68.27) / 2)
-    lower_2sigma = np.percentile(normalized_residual, (100 - 95.45) / 2)
-    upper_2sigma = np.percentile(normalized_residual, 100 - (100 - 95.45) / 2)
-    ax_residual.axhline(lower_1sigma, color="green", linestyle="--", label="1-sigma")
-    ax_residual.axhline(upper_1sigma, color="green", linestyle="--")
-    ax_residual.axhline(lower_2sigma, color="blue", linestyle="--", label="2-sigma")
-    ax_residual.axhline(upper_2sigma, color="blue", linestyle="--")
-    ax_residual.legend()
+    # Calibration: a calibrated emulator gives pulls ~ N(0,1), ie. 68.27% within ±1 and 95.45% within ±2.
+    # Draw that reference (grey, solid) next to where the central 68%/95% of the observed pulls actually
+    # fall (dashed). Measured lines inside the reference = conservative emulator; outside = overconfident.
+    y_gauss = np.linspace(bins[0], bins[-1], 200)
+    ax_residual.plot(
+        np.exp(-0.5 * y_gauss**2) / np.sqrt(2 * np.pi), y_gauss, color="0.5", linewidth=1.5, label="N(0,1)"
+    )
+    for n_sigma, coverage, color in [(1, 68.27, "green"), (2, 95.45, "blue")]:
+        ax_residual.axhline(n_sigma, color="0.5", linestyle="-", linewidth=1)
+        ax_residual.axhline(-n_sigma, color="0.5", linestyle="-", linewidth=1)
+        lower = np.percentile(normalized_residual, (100 - coverage) / 2)
+        upper = np.percentile(normalized_residual, 100 - (100 - coverage) / 2)
+        ax_residual.axhline(lower, color=color, linestyle="--", label=f"{coverage:.0f}% of pulls")
+        ax_residual.axhline(upper, color=color, linestyle="--")
+    ax_residual.set_ylim(min(bins[0], -2.3), max(bins[-1], 2.3))
+    ax_residual.legend(fontsize=8, loc="upper right")
+
+    # The same calibration as numbers: observed coverage of ±1 and ±2, against the N(0,1) values
+    within_1 = 100 * np.mean(np.abs(normalized_residual) < 1)
+    within_2 = 100 * np.mean(np.abs(normalized_residual) < 2)
+    text = (
+        rf"$|\rm{{pull}}| < 1$: {within_1:.0f}% (ideal 68%)"
+        "\n"
+        rf"$|\rm{{pull}}| < 2$: {within_2:.0f}% (ideal 95%)"
+        "\n"
+        rf"pull mean {np.mean(normalized_residual):.2f}, std {np.std(normalized_residual):.2f} (ideal 0, 1)"
+    )
+    ax_scatter.text(0.4, 0.02, text, fontsize=10, transform=ax_scatter.transAxes)
 
     if validation_set:
         filename = "emulator_residuals_validation"
