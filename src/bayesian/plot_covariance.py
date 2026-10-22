@@ -27,7 +27,7 @@ import numpy as np
 import seaborn as sns
 from matplotlib.colors import LogNorm, SymLogNorm
 
-from bayesian import analysis, data_IO
+from bayesian import analysis, data_IO, emulation
 from bayesian import mc_sampling as mcmc
 from bayesian.systematic_correlation import SystematicCorrelationManager
 
@@ -647,29 +647,26 @@ def _covariance_to_correlation(cov_matrix: np.ndarray) -> np.ndarray:
 
 def _get_emulator_predictions(config: mcmc.MCConfig, parameter_point: np.ndarray) -> dict:
     """Get emulator predictions using the SAME path as MCMC."""
+    # NOTE: This previously called `emulation.base.EmulatorOrganizationConfig` and `base.predict`, neither
+    #       of which exists, and swallowed the AttributeError - so the emulator covariance was always zero.
+    #       Now mirrors mc_sampling/base.py + log_posterior.py (including the truncated-PC covariance,
+    #       which predict() computes itself when not precomputed).
     try:
-        from bayesian.emulation import base
+        emulation_config = emulation.EmulationConfig.from_config_file(analysis_settings=config.analysis_settings)
+        emulation_results = emulation_config.read_all_emulator_groups(config.analysis_settings)
 
-        # Step 1: Try to create emulation config
-        emulation_config = base.EmulatorOrganizationConfig.from_config_file(
-            analysis_name=config.analysis_name,
-            parameterization=config.parameterization,
-            config_file=config.config_file,
-            analysis_config=config.analysis_config,
-        )
-
-        # Step 2: Try to load emulation results
-        emulation_results = emulation_config.read_all_emulator_groups()
-
-        # Step 3: Try prediction
         if parameter_point.ndim == 1:
             parameter_point = parameter_point.reshape(1, -1)
 
-        predictions = base.predict(parameter_point, emulation_config, emulation_group_results=emulation_results)
-
-        return predictions
+        return emulation.predict(
+            parameter_point,
+            emulation_config,
+            analysis_settings=config.analysis_settings,
+            emulator_results=emulation_results,
+        )
 
     except Exception as e:
+        logger.warning(f"Could not evaluate emulator ({e!r}) - emulator covariance will be plotted as zero")
         return {}
 
 
