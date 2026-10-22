@@ -98,17 +98,20 @@ def plot_all_covariance_components(
     # Extract covariance components
     cov_components = _extract_covariance_components(experimental_data, emulator_predictions, config)
 
+    # Observable-type sectors (eg. hadron / jet), used to label the matrix axes
+    sectors = _observable_sectors(experimental_data)
+
     # Create main comparison plot
-    _plot_covariance_comparison(cov_components, plot_dir, figsize, cmap)
+    _plot_covariance_comparison(cov_components, plot_dir, figsize, cmap, sectors)
 
     # Create individual detailed plots
-    _plot_individual_covariance_matrices(cov_components, plot_dir, cmap)
+    _plot_individual_covariance_matrices(cov_components, plot_dir, cmap, sectors)
 
     # Create systematic group correlation plots
-    _plot_systematic_group_correlations(cov_components, plot_dir, cmap)
+    _plot_systematic_group_correlations(cov_components, plot_dir, cmap, sectors)
 
     # Create correlation matrix plots
-    _plot_correlation_matrices(cov_components, plot_dir, cmap)
+    _plot_correlation_matrices(cov_components, plot_dir, cmap, sectors)
 
     # Create diagnostic plots
     _plot_covariance_diagnostics(cov_components, plot_dir)
@@ -293,7 +296,11 @@ def _verify_systematic_covariance_consistency(cov_components: dict[str, np.ndarr
 
 
 def _plot_covariance_comparison(
-    cov_components: dict[str, np.ndarray], plot_dir: Path, figsize: tuple[int, int], cmap: str
+    cov_components: dict[str, np.ndarray],
+    plot_dir: Path,
+    figsize: tuple[int, int],
+    cmap: str,
+    sectors: list[tuple[int, int, str]] | None = None,
 ) -> None:
     """
     Create a comparison plot showing all covariance components side by side.
@@ -315,7 +322,7 @@ def _plot_covariance_comparison(
         # Plot covariance matrix (top row)
         ax_cov = axes[0, i]
         _plot_single_matrix(
-            cov_matrix, ax_cov, f"{comp_name.replace('_', ' ').title()} Covariance", cmap, matrix_type="covariance"
+            cov_matrix, ax_cov, f"{comp_name.replace('_', ' ').title()} Covariance", cmap, matrix_type="covariance", sectors=sectors
         )
 
         # Plot correlation matrix (bottom row)
@@ -327,6 +334,7 @@ def _plot_covariance_comparison(
             f"{comp_name.replace('_', ' ').title()} Correlation",
             "RdBu_r",
             matrix_type="correlation",
+            sectors=sectors,
         )
 
     plt.tight_layout()
@@ -337,7 +345,9 @@ def _plot_covariance_comparison(
     logger.info("Created covariance comparison plot")
 
 
-def _plot_individual_covariance_matrices(cov_components: dict[str, np.ndarray], plot_dir: Path, cmap: str) -> None:
+def _plot_individual_covariance_matrices(
+    cov_components: dict[str, np.ndarray], plot_dir: Path, cmap: str, sectors: list[tuple[int, int, str]] | None = None
+) -> None:
     """
     Create individual detailed plots for each covariance matrix.
     """
@@ -351,7 +361,7 @@ def _plot_individual_covariance_matrices(cov_components: dict[str, np.ndarray], 
 
         # Covariance matrix
         _plot_single_matrix(
-            cov_matrix, ax_cov, f"{comp_name.replace('_', ' ').title()} Covariance", cmap, matrix_type="covariance"
+            cov_matrix, ax_cov, f"{comp_name.replace('_', ' ').title()} Covariance", cmap, matrix_type="covariance", sectors=sectors
         )
 
         # Correlation matrix
@@ -362,6 +372,7 @@ def _plot_individual_covariance_matrices(cov_components: dict[str, np.ndarray], 
             f"{comp_name.replace('_', ' ').title()} Correlation",
             "RdBu_r",
             matrix_type="correlation",
+            sectors=sectors,
         )
 
         plt.tight_layout()
@@ -374,7 +385,10 @@ def _plot_individual_covariance_matrices(cov_components: dict[str, np.ndarray], 
 
 
 def _plot_systematic_group_correlations(
-    cov_components: dict[str, np.ndarray], plot_dir: Path, cmap: str = "RdBu_r"
+    cov_components: dict[str, np.ndarray],
+    plot_dir: Path,
+    cmap: str = "RdBu_r",
+    sectors: list[tuple[int, int, str]] | None = None,
 ) -> None:
     """
     Create focused plots for systematic uncertainty group correlations.
@@ -407,12 +421,12 @@ def _plot_systematic_group_correlations(
 
         # Covariance matrix
         _plot_single_matrix(
-            cov_matrix, ax_cov, f'Systematic Group "{group_name}" Covariance', cmap, matrix_type="covariance"
+            cov_matrix, ax_cov, f'Systematic Group "{group_name}" Covariance', cmap, matrix_type="covariance", sectors=sectors
         )
 
         # Correlation matrix with improved visualization
         _plot_single_matrix(
-            corr_matrix, ax_corr, f'Systematic Group "{group_name}" Correlation', "RdBu_r", matrix_type="correlation"
+            corr_matrix, ax_corr, f'Systematic Group "{group_name}" Correlation', "RdBu_r", matrix_type="correlation", sectors=sectors
         )
 
         plt.tight_layout()
@@ -437,7 +451,9 @@ def _plot_systematic_group_correlations(
                 continue
 
             corr_matrix = _covariance_to_correlation(cov_matrix)
-            _plot_single_matrix(corr_matrix, axes[i], f'Group "{group_name}"', "RdBu_r", matrix_type="correlation")
+            _plot_single_matrix(
+                corr_matrix, axes[i], f'Group "{group_name}"', "RdBu_r", matrix_type="correlation", sectors=sectors
+            )
 
         plt.tight_layout()
         plt.savefig(plot_dir / "systematic_groups_comparison.pdf", dpi=300, bbox_inches="tight")
@@ -447,7 +463,9 @@ def _plot_systematic_group_correlations(
         logger.info("Created systematic groups comparison plot")
 
 
-def _plot_correlation_matrices(cov_components: dict[str, np.ndarray], plot_dir: Path, cmap: str) -> None:
+def _plot_correlation_matrices(
+    cov_components: dict[str, np.ndarray], plot_dir: Path, cmap: str, sectors: list[tuple[int, int, str]] | None = None
+) -> None:
     """
     Create a focused plot comparing main correlation matrices.
     """
@@ -472,7 +490,7 @@ def _plot_correlation_matrices(cov_components: dict[str, np.ndarray], plot_dir: 
         corr_matrix = _covariance_to_correlation(cov_matrix)
 
         _plot_single_matrix(
-            corr_matrix, axes[i], f"{comp_name.replace('_', ' ').title()}", "RdBu_r", matrix_type="correlation"
+            corr_matrix, axes[i], f"{comp_name.replace('_', ' ').title()}", "RdBu_r", matrix_type="correlation", sectors=sectors
         )
 
     plt.tight_layout()
@@ -484,7 +502,12 @@ def _plot_correlation_matrices(cov_components: dict[str, np.ndarray], plot_dir: 
 
 
 def _plot_single_matrix(
-    matrix: np.ndarray, ax: plt.Axes, title: str, cmap: str, matrix_type: str = "covariance"
+    matrix: np.ndarray,
+    ax: plt.Axes,
+    title: str,
+    cmap: str,
+    matrix_type: str = "covariance",
+    sectors: list[tuple[int, int, str]] | None = None,
 ) -> None:
     """
     Plot a single covariance or correlation matrix with appropriate scaling and colorbar.
@@ -525,14 +548,23 @@ def _plot_single_matrix(
     cbar = plt.colorbar(im, ax=ax, shrink=0.8)
     cbar.set_label(cbar_label)
 
-    # Formatting - remove feature index labels and grids
     ax.set_title(title, fontsize=12, fontweight="bold")
+    ax.set_xlabel("Data bin index $j$")
+    ax.set_ylabel("Data bin index $i$")
 
-    # Remove axis labels and ticks for cleaner look
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.set_xlabel("")
-    ax.set_ylabel("")
+    # Mark where each observable type starts, and name it on the top/right axes
+    if sectors:
+        for start, _, _ in sectors[1:]:
+            ax.axvline(start - 0.5, color="0.4", linestyle="--", linewidth=0.6)
+            ax.axhline(start - 0.5, color="0.4", linestyle="--", linewidth=0.6)
+        centres = [(start + end - 1) / 2 for start, end, _ in sectors]
+        names = [name for _, _, name in sectors]
+        top = ax.secondary_xaxis("top")
+        top.set_xticks(centres, names, fontsize=8)
+        top.tick_params(length=0)
+        right = ax.secondary_yaxis("right")
+        right.set_yticks(centres, names, fontsize=8, rotation=90, va="center")
+        right.tick_params(length=0)
 
 
 def _plot_covariance_diagnostics(cov_components: dict[str, np.ndarray], plot_dir: Path) -> None:
@@ -627,6 +659,28 @@ def _plot_covariance_diagnostics(cov_components: dict[str, np.ndarray], plot_dir
     plt.close()
 
     logger.info("Created covariance diagnostic plots")
+
+
+# Charged-particle jets (STAR) and full jets are both jet R_AA, so they share one sector
+_SECTOR_NAMES = {"hadron": "Hadron $R_{AA}$", "inclusive_chjet": "Jet $R_{AA}$", "inclusive_jet": "Jet $R_{AA}$"}
+
+
+def _observable_sectors(experimental_data: dict) -> list[tuple[int, int, str]]:
+    """
+    Group consecutive observables of the same type into (start, end, name) bin ranges.
+
+    Observable labels are `sqrts__system__type__...`, and the data vector is ordered by type
+    first, so each type forms one contiguous run of bins.
+    """
+    sectors: list[tuple[int, int, str]] = []
+    for start, end, label in experimental_data.get("observable_ranges", []):
+        observable_type = label.split("__")[2]
+        name = _SECTOR_NAMES.get(observable_type, observable_type)
+        if sectors and sectors[-1][2] == name and sectors[-1][1] == start:
+            sectors[-1] = (sectors[-1][0], end, name)
+        else:
+            sectors.append((start, end, name))
+    return sectors
 
 
 def _covariance_to_correlation(cov_matrix: np.ndarray) -> np.ndarray:
