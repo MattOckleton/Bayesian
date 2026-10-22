@@ -162,6 +162,16 @@ def plot(config: emulation.EmulationConfig):
     plot_dir = Path(config.analysis_settings.output_dir) / "plot_input_data"
     plot_dir.mkdir(parents=True, exist_ok=True)
 
+    # The preprocessed predictions only exist once the preprocessing stage has been run.
+    # Without them we can still plot the standard predictions, so probe once and skip the
+    # preprocessed comparison rather than failing the whole job.
+    has_preprocessed = (Path(config.analysis_settings.output_dir) / "observables_preprocessed.h5").exists()
+    if not has_preprocessed:
+        logger.warning(
+            "observables_preprocessed.h5 not found - preprocessing has not been run,"
+            " so only the standard predictions will be plotted."
+        )
+
     # Compare smoothed predictions for all design points
     # Start with individual so we can look in detail
     for validation_set in [False, True]:
@@ -172,13 +182,14 @@ def plot(config: emulation.EmulationConfig):
             grid_size=(3, 3),
             validation_set=validation_set,
         )
-        _plot_predictions_for_all_design_points(
-            config=config,
-            plot_dir=plot_dir,
-            select_which_to_plot=["preprocessed"],
-            grid_size=(3, 3),
-            validation_set=validation_set,
-        )
+        if has_preprocessed:
+            _plot_predictions_for_all_design_points(
+                config=config,
+                plot_dir=plot_dir,
+                select_which_to_plot=["preprocessed"],
+                grid_size=(3, 3),
+                validation_set=validation_set,
+            )
         ## And then combined for convenient comparison
         # _plot_predictions_for_all_design_points(
         #    config=config,
@@ -228,9 +239,12 @@ def _plot_predictions_for_all_design_points(
 
     # Grab the observables to compare
     all_observables = data_IO.read_dict_from_h5(config.analysis_settings.output_dir, "observables.h5")
-    all_observables_preprocessed = data_IO.read_dict_from_h5(
-        config.analysis_settings.output_dir, "observables_preprocessed.h5"
-    )
+    # May not exist: preprocessing is an optional stage. See plot().
+    all_observables_preprocessed = None
+    if (Path(config.analysis_settings.output_dir) / "observables_preprocessed.h5").exists():
+        all_observables_preprocessed = data_IO.read_dict_from_h5(
+            config.analysis_settings.output_dir, "observables_preprocessed.h5"
+        )
     colors = [sns.xkcd_rgb["dark sky blue"], sns.xkcd_rgb["medium green"]]
 
     sorted_observable_keys_iter = iter(
@@ -256,13 +270,19 @@ def _plot_predictions_for_all_design_points(
             x = (xmin + xmax) / 2
             # Plot each design point separately
             observable = all_observables[prediction_key][observable_key]["y"]
-            observable_preprocessed = all_observables_preprocessed[prediction_key][observable_key]["y"]
-            for i_design_point in range(observable_preprocessed.shape[1]):
-                for label, color, obs in zip(
-                    ["standard", "preprocessed"], colors, [observable, observable_preprocessed]
-                ):
-                    if label not in select_which_to_plot:
-                        continue
+            # Only include the series we actually have, so a run without preprocessing still
+            # plots the standard predictions. Note the design point count must come from an
+            # available series, not unconditionally from the preprocessed one.
+            series = [("standard", colors[0], observable)]
+            if all_observables_preprocessed is not None:
+                series.append(
+                    ("preprocessed", colors[1], all_observables_preprocessed[prediction_key][observable_key]["y"])
+                )
+            series = [s for s in series if s[0] in select_which_to_plot]
+            if not series:
+                continue
+            for i_design_point in range(series[0][2].shape[1]):
+                for label, color, obs in series:
                     ax.plot(
                         x,
                         obs[:, i_design_point],
