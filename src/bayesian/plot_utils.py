@@ -124,10 +124,18 @@ def plot_observable_panels(
 
         # Plot -- create new plot and/or fill appropriate subplot
         plot_shape = plot_panel_shapes[i_plot]
-        fontsize = 14.0 / plot_shape[0]
-        markersize = 8.0 / plot_shape[0]
+        # Size the figure to the grid, so each panel keeps the same size and fonts can stay fixed
+        # (matplotlib's default figure size squeezed every grid into 6.4x4.8 inches).
+        fontsize = 10.0
+        markersize = 4.0
         if i_subplot == 0:
-            fig, axs = plt.subplots(plot_shape[0], plot_shape[1], constrained_layout=True, squeeze=False)
+            fig, axs = plt.subplots(
+                plot_shape[0],
+                plot_shape[1],
+                figsize=(3.8 * plot_shape[1], 3.0 * plot_shape[0]),
+                layout="constrained",
+                squeeze=False,
+            )
             for ax in axs.flat:
                 ax.tick_params(labelsize=fontsize)
             row = 0
@@ -189,19 +197,28 @@ def plot_observable_panels(
                 linestyle="dotted",
             )
 
-        # Draw legend
-        current_ax.legend(
-            loc="upper right",
-            title=observable_label,
-            title_fontsize=fontsize,
-            fontsize=fontsize,
-            frameon=False,
-            **legend_kwargs,
-        )
+        # Label the panel with its observable; the legend is drawn once per figure below,
+        # since a per-panel legend covered most of the axes.
+        current_ax.set_title(observable_label, fontsize=0.85 * fontsize)
 
         # Increment subplot, and save if done with plot
         i_subplot += 1
         if i_subplot == plot_shape[0] * plot_shape[1] or i_observable == len(sorted_observable_list) - 1:
+            # Hide unused panels on the last figure (panels fill column by column)
+            for i_unused in range(i_subplot, plot_shape[0] * plot_shape[1]):
+                axs[i_unused % plot_shape[0], i_unused // plot_shape[0]].set_visible(False)  # type: ignore[index]
+
+            handles, legend_labels = axs[0, 0].get_legend_handles_labels()  # type: ignore[index]
+            fig.legend(  # type: ignore[union-attr]
+                handles,
+                legend_labels,
+                loc="outside upper center",
+                fontsize=fontsize,
+                frameon=False,
+                # A caller's ncol was sized for a per-panel legend; the shared one spans the page width
+                **{**legend_kwargs, "ncol": min(len(handles), 6)},
+            )
+
             i_plot += 1
             i_subplot = 0
 
