@@ -291,10 +291,7 @@ def _plot_pca_reconstruction_observables(results, emulation_config, emulator_set
     # Pass in a list of dicts to plot, each of which has structure Y[observable_label][design_point_index]
     plot_list = [Y_dict["central_value"], Y_dict_truncated_reconstructed["central_value"]]
     labels = [r"JETSCAPE (before PCA)", r"JETSCAPE (after PCA)"]
-    colors = [
-        sns.xkcd_rgb["dark sky blue"],
-        sns.xkcd_rgb["denim blue"],
-    ]  # sns.xkcd_rgb['light blue'], sns.xkcd_rgb['pale red'], sns.xkcd_rgb['medium green']
+    colors = ["#1F4E9C", "#3BA33B"]  # same blue/green as the emulator observable plots
 
     design_point_index = 0
     filename = f"PCA_observables__design_point{design_point_index}"
@@ -420,10 +417,13 @@ def _plot_emulator_observables(
 
     # Plot
     design_point_index = 0
+    # Deep blue / mid green / orange: far apart in both hue and lightness, so they stay distinct
+    # when projected, and the curves usually overlap
+    color_jetscape, color_reconstructed, color_emulator = "#1F4E9C", "#3BA33B", "#E07B00"
     if validation_set:
         plot_list = [Y_dict["central_value"], emulator_predictions_dict["central_value"]]
         labels = [r"JETSCAPE (before PCA)", r"Emulator"]
-        colors = [sns.xkcd_rgb["dark sky blue"], sns.xkcd_rgb["light blue"]]
+        colors = [color_jetscape, color_emulator]
         filename = f"emulator_observables_validation_design_point{design_point_index}"
     else:
         # Get PCA results -- 2D arrays: (design_point_index, observable_bins)
@@ -439,7 +439,7 @@ def _plot_emulator_observables(
             emulator_predictions_dict["central_value"],
         ]
         labels = [r"JETSCAPE", r"JETSCAPE (reconstructed)", r"Emulator"]
-        colors = [sns.xkcd_rgb["dark sky blue"], sns.xkcd_rgb["denim blue"], sns.xkcd_rgb["light blue"]]
+        colors = [color_jetscape, color_reconstructed, color_emulator]
         filename = f"emulator_observables_training__design_point{design_point_index}"
 
     plot_utils.plot_observable_panels(
