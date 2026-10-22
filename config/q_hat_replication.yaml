@@ -19,7 +19,7 @@
 #
 # Carried over from the published analysis:
 #   Emulator : RBF + white-noise kernel, 4 principal components, 50 restarts
-#   MCMC     : 50 walkers, 5000 burn, 5000 sampling
+#   MCMC     : 50 walkers, 5000 burn (sampling raised to 15000, see below)
 #   Data cut : MinPT = 9 GeV (the original per-observable DataExclude lists were all
 #              contiguous low-pT prefixes, i.e. exactly this cut)
 #   Three analyses: jet-only, hadron-only, combined, each with a SINGLE emulator group
@@ -29,30 +29,37 @@
 #   cd /user/mockleton/jetscape/Bayesian
 #   python src/bayesian/steer_analysis.py -c config/q_hat_replication.yaml
 #
-output_dir: '/user/mockleton/jetscape/q_hat_replication/results_framework_run/'
+output_dir: '/user/mockleton/jetscape/q_hat_replication/results_npc4_final/'
 observable_table_dir: '/user/mockleton/jetscape/q_hat_replication/tables'
 observable_config_dir: 'config'
-observables_filename: "observables.h5"   # preprocessing is off, so this stays observables.h5
+observables_filename: "observables_preprocessed.h5"
 
 # Run ONE stage at a time, in order.
 initialize_observables: True
-preprocess_input_data: False
-fit_emulators: False
-run_mcmc: False
-run_closure_tests: False
+preprocess_input_data: True
+fit_emulators: True
+run_mcmc: True
+run_closure_tests: True
 
 plot:
-  input_data: False
-  emulators: False
-  mcmc: False
-  qhat: False
-  closure_tests: False
-  covariance: False
-  across_analyses: False
+  input_data: True
+  emulators: True
+  mcmc: True
+  qhat: True
+  closure_tests: True
+  covariance: True
+  across_analyses: True
 
 # ----------------------------------------------------------------------------------
 parameters:
   preprocessing_parameters: &default_preprocessing
+    filtering:
+      enable: true
+      method: relative_statistical_error
+      threshold: 0.7                  # uncertainty / value min for a specific pt bin, specific dp to be marked as bad
+      problem_fraction_threshold: 0.015 # fraction of problematic bins in a DP to exclude DP
+      max_filtered_fraction: 0.2      # if filtering over this fraction, nothing is filtered, warning in log
+      min_design_points: 50           # if n design points is less than this, nothing is filtered, warning in log
     smoothing:
       outlier_n_RMS: 2.0
       interpolation_method: "linear"
@@ -75,11 +82,12 @@ parameters:
       n_restarts: 50                     # NRetrain: 50
       alpha: 1.e-10
 
-  # MCMC: NWalker=50, NBurn=5000, NStep=5000  (from RBF_N4 'MCMC' block)
+  # MCMC: NWalker=50, NBurn=5000 (from RBF_N4 'MCMC' block). NStep raised from 5000 to
+  # 15000: the combined run has tau~420, so 5000 steps is only ~12 tau (2026-10-01).
   mcmc_parameters: &default_mcmc
     n_walkers: 50
     n_burn_steps: 5000
-    n_sampling_steps: 5000
+    n_sampling_steps: 15000
     n_logging_steps: 100
 
   closure_parameters: &default_closure
@@ -146,7 +154,8 @@ analyses:
       closure:
         <<: *default_closure
     <<: *model_base
-    plot_panel_shapes: [[5, 5], [5, 5]]
+    # 2x3 panels per file for readability; must cover the 46 observables (8 x 6 = 48)
+    plot_panel_shapes: [[2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3]]
 
   # ---- 2) hadron-only (single PCA over all hadron R_AA) ----
   analysis_hadron:
@@ -166,7 +175,8 @@ analyses:
       closure:
         <<: *default_closure
     <<: *model_base
-    plot_panel_shapes: [[4, 4]]
+    # 2x3 panels per file for readability; must cover the 46 observables (8 x 6 = 48)
+    plot_panel_shapes: [[2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3]]
 
   # ---- 3) combined hadron + jet (single PCA over ALL 92 features, NPC=4) ----
   analysis_combined:
@@ -189,4 +199,5 @@ analyses:
       closure:
         <<: *default_closure
     <<: *model_base
-    plot_panel_shapes: [[4, 4], [4, 4]]
+    # 2x3 panels per file for readability; must cover the 92 observables (16 x 6 = 96)
+    plot_panel_shapes: [[2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3], [2, 3]]
