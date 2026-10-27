@@ -15,3 +15,7 @@ node_modules/
 # Data
 data/
 output/
+
+# q-hat analysis: only config/q_hat_replication.yaml is tracked; variants live in
+# /user/mockleton/jetscape/q_hat_replication/configs/
+config/q_hat_replication_*.yaml

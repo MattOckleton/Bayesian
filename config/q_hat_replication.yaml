@@ -5,20 +5,23 @@
 # to match the paper. Full rationale: /user/mockleton/jetscape/QHAT_ANALYSIS.md
 #
 # Deliberate departures from the published analysis:
-#   Systematics : legacy summed mode, sum:1000:0.8 uniformly. L=1000 removes bin
-#                 separation from the kernel (bin widths vary 5-60x within a single
-#                 observable, so any finite L would encode binning, not physics);
-#                 S=0.8 is the fraction of systematic variance taken as common across
-#                 each observable's pT range. The paper's Gaussian-on-rescaled-pT
-#                 kernel with l=0.2 is NOT reproduced - it cannot be expressed here.
+#   Systematics : legacy summed mode, sum:4:0.8 uniformly, so within each observable
+#                 rho = 0.8*exp(-|i-j|/4) decays with bin separation. L=4 bins is the best
+#                 single bin-length match to the paper's Gaussian-on-rescaled-pT kernel
+#                 with l=0.2, which cannot be expressed here; S=0.8 is the fraction of
+#                 systematic variance taken as common across each observable's pT range.
 #   Parameters  : c1,c2,c3 are sampled and emulated in LINEAR space. The published
 #                 analysis used log space; this framework has no log-scaling support.
 #   Validation  : 30 of the 200 real design points are held out (indices 170-199), so
 #                 the emulator can be validated. The paper's 30 extra validation design
 #                 points were never supplied with this dataset.
+#   Design pt 19: excluded. Its ALICE 2.76 TeV hadron R_AA 30-40% prediction is
+#                 [1.60, 1.77, 0.71, 45.0]; the 45 survives smoothing and dominated the
+#                 emulator covariance.
 #
 # Carried over from the published analysis:
-#   Emulator : RBF + white-noise kernel, 4 principal components, 50 restarts
+#   Emulator : RBF + white-noise kernel, 4 principal components, 50 restarts,
+#              length-scale bounds [0.1, 10] x prior range (STAT emulator.py)
 #   MCMC     : 50 walkers, 5000 burn (sampling raised to 15000, see below)
 #   Data cut : MinPT = 9 GeV (the original per-observable DataExclude lists were all
 #              contiguous low-pT prefixes, i.e. exactly this cut)
@@ -29,7 +32,7 @@
 #   cd /user/mockleton/jetscape/Bayesian
 #   python src/bayesian/steer_analysis.py -c config/q_hat_replication.yaml
 #
-output_dir: '/user/mockleton/jetscape/q_hat_replication/results_npc4_final/'
+output_dir: '/user/mockleton/jetscape/q_hat_replication/results_dp19_L4_lsb/'
 observable_table_dir: '/user/mockleton/jetscape/q_hat_replication/tables'
 observable_config_dir: 'config'
 observables_filename: "observables_preprocessed.h5"
@@ -72,7 +75,7 @@ parameters:
     kernels:
       active: ['rbf', 'noise']          # <-- RBF (not matern), as in the original
       rbf:
-        length_scale_bounds_factor: [0.01, 100]
+        length_scale_bounds_factor: [0.1, 10]
       noise:
         type: "white"
         args:
@@ -115,7 +118,7 @@ analysis_base: &model_base
   # predictions carry beyond Design.dat (200-229) are excluded so that the Design and
   # Prediction training/validation sets stay equal in size.
   validation_indices: [170, 200]
-  design_points_to_exclude: [13, 15, 103, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229]
+  design_points_to_exclude: [13, 15, 19, 103, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229]
 
   # MinPT = 9 GeV (reproduces every per-observable DataExclude, all low-pT prefixes).
   # Jets start well above 9 GeV, so this only trims hadron spectra, as in the original.
@@ -147,7 +150,7 @@ analyses:
           n_pc: 4
           observable_list:
             - observable: 'jet__pt_'
-              sys_data: ['sum:1000:0.8']
+              sys_data: ['sum:4:0.8']
               sys_theory: []
       mcmc:
         <<: *default_mcmc
@@ -168,7 +171,7 @@ analyses:
           n_pc: 4
           observable_list:
             - observable: 'hadron__pt_'
-              sys_data: ['sum:1000:0.8']
+              sys_data: ['sum:4:0.8']
               sys_theory: []
       mcmc:
         <<: *default_mcmc
@@ -189,10 +192,10 @@ analyses:
           n_pc: 4
           observable_list:
             - observable: 'hadron__pt_'
-              sys_data: ['sum:1000:0.8']
+              sys_data: ['sum:4:0.8']
               sys_theory: []
             - observable: 'jet__pt_'
-              sys_data: ['sum:1000:0.8']
+              sys_data: ['sum:4:0.8']
               sys_theory: []
       mcmc:
         <<: *default_mcmc
