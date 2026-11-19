@@ -47,12 +47,23 @@ def plot(config: emulation.EmulationConfig):
         _plot_pca_reconstruction_error_by_feature(results, plot_dir, config, emulator_settings)
         _plot_pca_reconstruction_error_by_feature(results, plot_dir, config, emulator_settings, fixed_y_range=True)
 
-        # Emulator plots
-        _plot_emulator_observables(results, config, emulator_settings, emulator_name, plot_dir, validation_set=False)
-        _plot_emulator_observables(results, config, emulator_settings, emulator_name, plot_dir, validation_set=True)
-
-        _plot_emulator_residuals(results, config, emulator_settings, emulator_name, plot_dir, validation_set=False)
-        _plot_emulator_residuals(results, config, emulator_settings, emulator_name, plot_dir, validation_set=True)
+        # Emulator plots. With every design point used for training there is no validation set to plot.
+        n_validation = len(
+            data_IO.design_array_from_h5(
+                analysis_settings.output_dir, filename=analysis_settings.io.observables_filename, validation_set=True
+            )
+        )
+        validation_sets = [False, True] if n_validation > 0 else [False]
+        if n_validation == 0:
+            logger.info("No validation design points: skipping the validation-set emulator plots")
+        for validation_set in validation_sets:
+            _plot_emulator_observables(
+                results, config, emulator_settings, emulator_name, plot_dir, validation_set=validation_set
+            )
+        for validation_set in validation_sets:
+            _plot_emulator_residuals(
+                results, config, emulator_settings, emulator_name, plot_dir, validation_set=validation_set
+            )
 
 
 # ---------------------------------------------------------------
